@@ -1,0 +1,29 @@
+[package]
+name = "websocket-tungstenite-retry"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+url = "2.3.1"
+anyhow = "1.0"
+env_logger = "0.8.4"
+futures = "0.3.21"
+log = "0.4.0"
+solana-client = "^1.14.1"
+solana-sdk = "^1.14.0"
+serde = { version = "1.0.141", features = ["derive"] }
+serde_json = "1.0.82"
+jsonrpsee = { version = "0.18.1", features = ["http-client", "macros"] }
+tokio = { version = "1.14.1", features = ["rt-multi-thread", "time", "macros", "sync"] }
+tokio-tungstenite = { version = "0.17.2", features = ["native-tls"] }
+tower-http = { version = "0.4.0", features = ["full"] }
+tower = { version = "0.4.13", features = ["full"] }
+hyper = "0.14.20"
+tracing = "0.1.34"
+tracing-test = "0.2.4"
+
+
+
+
