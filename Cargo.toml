@@ -16,8 +16,9 @@ solana-sdk = "^1.14.0"
 serde = { version = "1.0.141", features = ["derive"] }
 serde_json = "1.0.82"
 jsonrpsee = { version = "0.18.1", features = ["http-client", "macros"] }
-tokio = { version = "1.14.1", features = ["rt-multi-thread", "time", "macros", "sync"] }
+tokio = { version = "1.14.1", features = ["rt-multi-thread", "time", "macros", "sync", "io-util"] }
 tokio-tungstenite = { version = "0.17.2", features = ["native-tls"] }
+#tokio-util = "0.7.8"
 tower-http = { version = "0.4.0", features = ["full"] }
 tower = { version = "0.4.13", features = ["full"] }
 hyper = "0.14.20"

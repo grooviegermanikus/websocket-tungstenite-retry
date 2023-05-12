@@ -238,13 +238,15 @@ async fn connect_and_listen<T: Serialize>(
 
     let mut interval = interval(Duration::from_millis(1500));
     let shutting_down_reconnect = shutting_down.clone();
+    let mut subscription_confirmed = false;
     loop {
         select! {
             Some(msg) = ws_read.next() => {
                  match msg.map_err(|e| map_error(e))? {
                     tungstenite::Message::Text(s) => {
-                        if is_subscription_confirmed_message(s.as_str()) {
+                        if !subscription_confirmed && is_subscription_confirmed_message(s.as_str()) {
                             debug!("Subscription confirmed");
+                            subscription_confirmed = true;
                             status_sender.send(StatusUpdate::Subscribed).expect("Can't send to channel");
                             continue;
                         }
@@ -295,13 +297,21 @@ async fn connect_and_listen<T: Serialize>(
     Ok(())
 }
 
-
+// TODO use trait /template pattern
 fn is_subscription_confirmed_message(s: &str) -> bool {
     // unsure if all servers return that information
     let subscription_expected: Value =
         json!({"success": true, "message": "subscribed"});
-    let subscription_received: Value = serde_json::from_str(&s).unwrap();
-    subscription_expected == subscription_received
+
+    let maybe_value = serde_json::from_str::<Value>(&s);
+    let success = maybe_value.map(|json| json == subscription_expected).unwrap_or(false);
+    if success {
+        debug!("Subscription success message: {:?}", s);
+    } else {
+        warn!("Unexpected subscription response message: {:?}", s);
+    }
+
+    success
 }
 
 enum WebsocketHighLevelError {
