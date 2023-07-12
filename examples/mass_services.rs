@@ -19,9 +19,6 @@ use hyper::body::Bytes;
 use log::info;
 use serde::{Deserialize, Serialize};
 
-use solana_client::rpc_client::{RpcClient, RpcClientConfig};
-use solana_client::rpc_request::RpcRequest::Custom;
-use solana_sdk::{pubkey::Pubkey, commitment_config::{CommitmentConfig, CommitmentLevel}, signature::Keypair, signer::Signer, transaction::Transaction};
 use tokio::io::AsyncWriteExt;
 use tokio::select;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
@@ -43,7 +40,7 @@ async fn main() {
     env_logger::Builder::from_env(Env::default()
         .default_filter_or("websocket_tungstenite_retry::websocket_stable=info")).init();
 
-    let total_counter = AtomicI32::new(0);
+    let total_counter = Arc::new(AtomicI32::new(0));
 
     let mut list = Vec::new();
     for i in 0..10 {
@@ -55,7 +52,7 @@ async fn main() {
 
 }
 
-async fn createservice(name: String, total_counter: Arc<AtomicBool>) {
+async fn createservice(name: String, total_counter: Arc<AtomicI32>) {
     let mut ws = StableWebSocket::new_with_timeout(
         Url::parse(
             "wss://api.mngo.cloud/orderbook/v1/"

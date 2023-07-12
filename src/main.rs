@@ -14,15 +14,7 @@ use serde_json::Value::Null;
 use hyper::body::Bytes;
 use serde::{Deserialize, Serialize};
 
-use solana_client::rpc_client::{RpcClient, RpcClientConfig};
-use solana_client::rpc_request::RpcRequest::Custom;
-use solana_sdk::{pubkey::Pubkey, commitment_config::{CommitmentConfig, CommitmentLevel}, signature::Keypair, signer::Signer, transaction::Transaction, info};
 use tokio::sync::mpsc::{Sender, UnboundedSender};
-use tower::layer::util::{Identity, Stack};
-use tower::ServiceBuilder;
-use tower_http::classify::{ServerErrorsAsFailures, SharedClassifier};
-use tower_http::LatencyUnit;
-use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Span;
 use url::Url;
 use crate::websocket_stable::{StableWebSocket, WsMessage};

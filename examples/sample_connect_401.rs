@@ -21,8 +21,6 @@ use solana_sdk::{pubkey::Pubkey, commitment_config::{CommitmentConfig, Commitmen
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tower::layer::util::{Identity, Stack};
 use tower::ServiceBuilder;
-use tower_http::classify::{ServerErrorsAsFailures, SharedClassifier};
-use tower_http::LatencyUnit;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Span;
 use url::Url;
