@@ -15,7 +15,6 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use serde_json::{json, Value};
 use serde_json::Value::Null;
-use hyper::body::Bytes;
 use log::info;
 use serde::{Deserialize, Serialize};
 

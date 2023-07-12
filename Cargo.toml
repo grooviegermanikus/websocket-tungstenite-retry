@@ -1,23 +1,21 @@
 [package]
 name = "websocket-tungstenite-retry"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2021"
-repository = "https://github.com/grooviegermanikus/websocket-tungstenite-retry"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-url = "^2.3.1"
+url = "^2.1"
 anyhow = "^1.0"
-futures = "^0.3.21"
-log = "^0.4.0"
-serde = { version = "^1.0.141", features = ["derive"] }
-serde_json = "^1.0.82"
-tokio = { version = "^1.14.1", features = ["rt-multi-thread", "time", "macros", "sync", "io-util"] }
-tokio-tungstenite = { version = "^0.17.2", features = ["native-tls"] }
+futures = "^0.3"
+log = "^0.4"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
+tokio = { version = "^1", features = ["rt-multi-thread", "time", "macros", "sync", "io-util"] }
+tokio-tungstenite = { version = "^0.17", features = ["native-tls"] }
 
 [dev-dependencies]
-hyper = "0.14.20"
 tower-http = { version = "0.4.0", features = ["full"] }
 tower = { version = "0.4.13", features = ["full"] }
 env_logger = "^0.8.4"

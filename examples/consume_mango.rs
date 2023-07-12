@@ -9,7 +9,6 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use serde_json::json;
 use serde_json::Value::Null;
-use hyper::body::Bytes;
 use serde::{Deserialize, Serialize};
 
 use tokio::sync::mpsc::{Sender, UnboundedSender};

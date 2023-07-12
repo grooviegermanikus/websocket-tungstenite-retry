@@ -14,7 +14,6 @@ use anyhow::{anyhow, bail};
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use futures::channel::mpsc::unbounded;
 use futures::executor::block_on;
-use hyper::client::connect::Connected;
 use url::Url;
 
 use log::{debug, error, info, trace, warn};
@@ -32,7 +31,6 @@ use tokio_tungstenite::tungstenite::error::ProtocolError::ResetWithoutClosingHan
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
 use tokio_tungstenite::tungstenite::http::Response;
 use tokio_tungstenite::tungstenite::stream::MaybeTlsStream;
-use tracing::instrument::WithSubscriber;
 use crate::websocket_stable::State::Started;
 use crate::websocket_stable::WebsocketHighLevelError::{ConnectionWsError, FatalWsError, RecoverableWsError};
 
@@ -300,11 +298,10 @@ async fn connect_and_listen<T: Serialize>(
 // TODO use trait /template pattern
 fn is_subscription_confirmed_message(s: &str) -> bool {
     // unsure if all servers return that information
-    let subscription_expected: Value =
-        json!({"success": true, "message": "subscribed"});
+    //  {"success":true,"message":"subscribed to level updates for Fgh9JSZ2qfSjCw9RPJ85W2xbihsp2muLvfRztzoVR7f1"}
 
-    let maybe_value = serde_json::from_str::<Value>(&s);
-    let success = maybe_value.map(|json| json == subscription_expected).unwrap_or(false);
+    let maybe_value = serde_json::from_str::<Value>(&s).unwrap();
+    let success = maybe_value["success"].as_bool().unwrap();
     if success {
         debug!("Subscription success message: {:?}", s);
     } else {
