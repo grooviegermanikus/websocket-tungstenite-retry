@@ -65,12 +65,12 @@ enum State {
 
 impl StableWebSocket {
 
-    pub fn new(url: Url, subscription: Value) -> anyhow::Result<Self> {
-        Self::new_with_timeout(url, subscription, Duration::from_millis(500))
+    pub async fn new(url: Url, subscription: Value) -> anyhow::Result<Self> {
+        Self::new_with_timeout(url, subscription, Duration::from_millis(500)).await
     }
     ///
     /// url: url of the websocket server
-    pub fn new_with_timeout(url: Url, subscription: Value, startup_timeout: Duration) -> anyhow::Result<Self> {
+    pub async fn new_with_timeout(url: Url, subscription: Value, startup_timeout: Duration) -> anyhow::Result<Self> {
         let (message_tx, mut message_rx) = sync::mpsc::unbounded_channel();
         let (sc_tx, mut sc_rx) = sync::mpsc::unbounded_channel();
         let (cc_tx, cc_rx) = sync::mpsc::unbounded_channel();
@@ -111,7 +111,7 @@ impl StableWebSocket {
         }
     }
 
-    pub fn shutdown(&mut self) {
+    pub async fn shutdown(&mut self) {
         match &self.state {
             State::Started(join_handle) => {
                 self.control_sender.send(ControlMessage::Shutdown).unwrap();

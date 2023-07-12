@@ -1,3 +1,5 @@
+
+
 use std::future::Future;
 use std::time::Duration;
 use env_logger::Env;
@@ -6,21 +8,24 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 use websocket_tungstenite_retry::websocket_stable::StableWebSocket;
 
-
 #[tokio::main]
 async fn main() {
     env_logger::Builder::from_env(Env::default()
         .default_filter_or("websocket_tungstenite_retry::websocket_stable=debug")).init();
 
-    let result = StableWebSocket::new_with_timeout(
+    let mut ws = StableWebSocket::new_with_timeout(
         Url::parse(
-            "ws://httpbin.org/status/401"
+            "ws://localhost:2020/"
         ).unwrap(),
         json!({
             "command": "subscribe",
-        }), Duration::from_secs(3)).await;
+        }), Duration::from_secs(1)).await.unwrap();
 
-    assert_eq!(result.is_err(), true);
+    while let Some(msg) = ws.get_message_channel().recv().await {
+        println!("msg: {:?}", msg);
+    }
+
+    ws.join().await;
 
 }
 

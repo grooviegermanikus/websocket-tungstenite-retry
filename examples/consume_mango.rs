@@ -9,7 +9,6 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use serde_json::json;
 use serde_json::Value::Null;
-use serde::{Deserialize, Serialize};
 
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tracing::Span;
@@ -26,7 +25,7 @@ async fn main() {
         json!({
             "command": "subscribe",
             "marketId": "Fgh9JSZ2qfSjCw9RPJ85W2xbihsp2muLvfRztzoVR7f1",
-        })).unwrap();
+        })).await.unwrap();
     let mut count = 0;
     while let Some(msg) = ws.get_message_channel().recv().await {
         println!("msg: {:?}", msg);
