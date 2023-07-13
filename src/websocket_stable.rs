@@ -11,9 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail};
-use futures::{SinkExt, StreamExt, TryStreamExt};
-use futures::channel::mpsc::unbounded;
-use futures::executor::block_on;
+use futures_util::{SinkExt, StreamExt};
 use url::Url;
 
 use log::{debug, error, info, trace, warn};
@@ -86,7 +84,7 @@ impl StableWebSocket {
         });
 
         // blocking channel and wait for one Subscribed message
-        if let Some(StatusUpdate::Subscribed) = block_on(sc_rx.recv()) {
+        if let Some(StatusUpdate::Subscribed) = sc_rx.recv().await {
             debug!("WebSocket subscribed successfully");
             Ok(Self {
                 ws_url: url,
@@ -123,7 +121,7 @@ impl StableWebSocket {
 
                 // wait for shutting down message
                 loop {
-                    let Some(status) = block_on(self.status_receiver.recv()) else { break; };
+                    let Some(status) = self.status_receiver.recv().await else { break; };
 
                     println!("status: {:?}", status);
 
