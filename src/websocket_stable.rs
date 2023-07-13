@@ -71,6 +71,7 @@ impl StableWebSocket {
     ///
     /// url: url of the websocket server
     pub async fn new_with_timeout(url: Url, subscription: Value, startup_timeout: Duration) -> anyhow::Result<Self> {
+        debug!("WebSocket subscribe to url {:?} (timeout {:?})", url, startup_timeout);
         let (message_tx, mut message_rx) = sync::mpsc::unbounded_channel();
         let (sc_tx, mut sc_rx) = sync::mpsc::unbounded_channel();
         let (cc_tx, cc_rx) = sync::mpsc::unbounded_channel();
@@ -78,12 +79,15 @@ impl StableWebSocket {
         // main thread
         let url2 = url.clone();
         let join_handle = tokio::spawn(async move {
+            debug!("WebSocket worker thread started");
             listen_and_handle_reconnects(&url2, startup_timeout, message_tx, sc_tx, cc_rx, &subscription).await;
+            debug!("WebSocket loop exhausted by close frame");
             return; // loop exhausted by close frame
         });
 
         // blocking channel and wait for one Subscribed message
         if let Some(StatusUpdate::Subscribed) = block_on(sc_rx.recv()) {
+            debug!("WebSocket subscribed successfully");
             Ok(Self {
                 ws_url: url,
                 message_receiver: message_rx,
@@ -234,7 +238,7 @@ async fn connect_and_listen<T: Serialize>(
         // ws_read.reunite(ws_write).unwrap().close(None).await.unwrap();
     });
 
-    let mut interval = interval(Duration::from_millis(1500));
+    let interval = interval(Duration::from_millis(1500));
     let shutting_down_reconnect = shutting_down.clone();
     let mut subscription_confirmed = false;
     loop {
