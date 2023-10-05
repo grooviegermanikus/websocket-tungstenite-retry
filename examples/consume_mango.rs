@@ -20,20 +20,18 @@ async fn main() {
     //     subscription_request, Duration::from_secs(10)).await.unwrap();
 
 
-    let mut ws = StableWebSocket::new(
-        Url::parse("wss://api.mngo.cloud/orderbook/v1/").unwrap(),
-        json!({
+    let mut ws = StableWebSocket::new_with_timeout(Url::parse("wss://api.mngo.cloud/orderbook/v1/").unwrap(), json!({
             "command": "subscribe",
             "marketId": "Fgh9JSZ2qfSjCw9RPJ85W2xbihsp2muLvfRztzoVR7f1",
-        })).await.unwrap();
+        }), Duration::from_secs(3000)).await.unwrap();
     let mut count = 0;
     while let Some(msg) = ws.get_message_channel().recv().await {
         println!("msg: {:?}", msg);
 
-        if count > 5 {
-            println!("shutting down");
-            ws.shutdown();
-        }
+        // if count > 5 {
+        //     println!("shutting down");
+        //     ws.shutdown();
+        // }
         count += 1;
     }
 

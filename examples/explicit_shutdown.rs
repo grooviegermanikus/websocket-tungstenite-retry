@@ -26,13 +26,16 @@ async fn main() {
         msg_count += 1;
         count += 1;
 
-        if count >= 10 {
+        if count >= 5 {
             println!("shutting down");
-            // note: might intentiently call shutdown multiple times
-            ws.shutdown();
+            ws.shutdown().await;
+            // should log "ignore duplicate shutdown request"
+            ws.shutdown().await;
+            // should log "ignore duplicate shutdown request"
+            ws.shutdown().await;
         }
 
-        assert!(msg_count <= 10, "msg_count: {}", msg_count);
+        assert!(msg_count <= 5, "msg_count: {}", msg_count);
     }
 
     ws.join().await;

@@ -59,6 +59,7 @@ pub struct StableWebSocket {
 #[derive(Debug)]
 enum State {
     Started(JoinHandle<()>),
+    ShuttingDown,
     Stopped,
 }
 
@@ -108,6 +109,8 @@ impl StableWebSocket {
             State::Started(join_handle) => {
                 join_handle.await.unwrap();
             }
+            State::ShuttingDown => {
+            }
             State::Stopped => {
             }
         }
@@ -116,6 +119,8 @@ impl StableWebSocket {
     pub async fn shutdown(&mut self) {
         match &self.state {
             State::Started(join_handle) => {
+                self.state = State::ShuttingDown;
+                // note: control_sender might get closed; subsequent sends will fail
                 self.control_sender.send(ControlMessage::Shutdown).unwrap();
                 debug!("shutting down websocket service");
 
@@ -136,6 +141,10 @@ impl StableWebSocket {
                     }
                 }
 
+            }
+            State::ShuttingDown => {
+                // shutdown in progress
+                debug!("ignore duplicated shutdown request")
             }
             State::Stopped => {
                 // already stopped - do nothing
@@ -245,6 +254,7 @@ async fn connect_and_listen<T: Serialize>(
         select! {
             _ = shutdown_copy.cancelled() => {
                 debug!("shutting down");
+                return Ok(());
             }
             Some(msg) = ws_read.next() => {
                  match msg.map_err(|e| map_error(e))? {
