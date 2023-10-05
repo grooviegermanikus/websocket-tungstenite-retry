@@ -1,6 +1,7 @@
 use env_logger::Env;
 use serde_json::json;
 use std::time::Duration;
+use futures_util::future::join_all;
 
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use url::Url;
@@ -40,22 +41,34 @@ async fn main() {
     }
 
     let mut channel_a = ws.subscribe_message_channel();
-    tokio::spawn(async move {
+    let join_handle_a = tokio::spawn(async move {
         let mut count = 0;
         while let Ok(msg) = channel_a.recv().await {
             println!("msgA: {:?}", msg);
             count += 1;
+
+            if count > 5 {
+                return;
+            }
         }
     });
 
     let mut channel_b = ws.subscribe_message_channel();
-    tokio::spawn(async move {
+    let join_handle_b = tokio::spawn(async move {
         let mut count = 0;
         while let Ok(msg) = channel_b.recv().await {
             println!("msgB: {:?}", msg);
             count += 1;
+
+            if count > 10 {
+                return;
+            }
         }
     });
+
+    join_all(vec![join_handle_a, join_handle_b]).await;
+
+    ws.shutdown().await;
 
     ws.join().await;
 }

@@ -1,39 +1,25 @@
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use futures_util::{SinkExt, StreamExt};
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
-use std::net::Shutdown::Read;
-use std::net::TcpStream;
-use std::ops::{Add, Deref};
+use std::ops::Add;
 use std::pin::Pin;
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::channel;
-use std::sync::{Arc, Condvar};
 use std::time::{Duration, Instant};
 use url::Url;
 
-use crate::websocket_stable::State::Started;
 use crate::websocket_stable::WebsocketHighLevelError::{
     ConnectionWsError, FatalWsError, RecoverableWsError,
 };
-use log::{debug, error, info, trace, warn};
-use serde::{Deserialize, Serialize};
+use log::{debug, error, info, warn};
+use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::broadcast::Receiver;
-use tokio::sync::mpsc::{unbounded_channel, Sender, UnboundedReceiver, UnboundedSender};
-use tokio::sync::{oneshot, Mutex, RwLock};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use tokio::time::{interval, sleep, sleep_until, timeout};
+use tokio::time::interval;
 use tokio::{io, select, sync};
-use tokio_tungstenite::tungstenite::client::connect_with_config;
-use tokio_tungstenite::tungstenite::error::ProtocolError::ResetWithoutClosingHandshake;
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
-use tokio_tungstenite::tungstenite::http::Response;
-use tokio_tungstenite::tungstenite::stream::MaybeTlsStream;
-use tokio_tungstenite::tungstenite::{connect, error::Error as WsError, Error, Message, WebSocket};
-use tokio_tungstenite::{connect_async, tungstenite, WebSocketStream};
+use tokio_tungstenite::tungstenite::{error::Error as WsError, Error, Message};
+use tokio_tungstenite::{connect_async, tungstenite};
 use tokio_util::sync::CancellationToken;
 
 const CHANNEL_SIZE: usize = 1000;
@@ -80,7 +66,7 @@ impl StableWebSocket {
             "WebSocket subscribe to url {:?} (timeout {:?})",
             url, startup_timeout
         );
-        let (message_tx, mut message_rx) = sync::broadcast::channel(CHANNEL_SIZE);
+        let (message_tx, message_rx) = sync::broadcast::channel(CHANNEL_SIZE);
         let (sc_tx, mut sc_rx) = sync::mpsc::unbounded_channel();
         let (cc_tx, cc_rx) = sync::mpsc::unbounded_channel();
 
@@ -135,7 +121,7 @@ impl StableWebSocket {
 
     pub async fn shutdown(&mut self) {
         match &self.state {
-            State::Started(join_handle) => {
+            State::Started(_join_handle) => {
                 self.state = State::ShuttingDown;
                 // note: control_sender might get closed; subsequent sends will fail
                 self.control_sender.send(ControlMessage::Shutdown).unwrap();
@@ -182,7 +168,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(
     let mut interval = interval(Duration::from_millis(200));
 
     while let Err(highlevel_error) =
-        connect_and_listen(url, &sender, &status_sender, &mut control_receiver, sub).await
+        connect_and_listen(url, sender.clone(), &status_sender, &mut control_receiver, sub).await
     {
         match highlevel_error {
             ConnectionWsError(e) => {
@@ -235,12 +221,12 @@ pub enum ControlMessage {
 
 async fn connect_and_listen<T: Serialize>(
     url: &Url,
-    sender: &sync::broadcast::Sender<WsMessage>,
+    sender: sync::broadcast::Sender<WsMessage>,
     status_sender: &UnboundedSender<StatusUpdate>,
     control_receiver: &mut UnboundedReceiver<ControlMessage>,
     sub: &T,
 ) -> Result<(), WebsocketHighLevelError> {
-    let (mut ws_stream, response) = connect_async(url).await.map_err(ConnectionWsError)?;
+    let (ws_stream, response) = connect_async(url).await.map_err(ConnectionWsError)?;
     assert_eq!(
         response.status(),
         101,
@@ -299,11 +285,19 @@ async fn connect_and_listen<T: Serialize>(
                             continue;
                         }
                         debug!("Received Text: {}", s);
-                        sender.send(WsMessage::Text(s.clone())).expect("Can't send to channel");
+                        if sender.receiver_count() > 0 {
+                            sender.send(WsMessage::Text(s.clone())).expect("Can't send to channel");
+                        } else {
+                            debug!("Dropping message - no receivers");
+                        }
                     }
                     tungstenite::Message::Binary(data) => {
                         debug!("Received Binary: {} bytes", data.len());
-                        sender.send(WsMessage::Binary(data)).expect("Can't send to channel");
+                        if sender.receiver_count() > 0 {
+                            sender.send(WsMessage::Binary(data)).expect("Can't send to channel");
+                        } else {
+                            debug!("Dropping message - no receivers");
+                        }
                     }
                     // this close frame might be send from websocket server but in most cases
                     // it is the server's response to our close request triggered by Shutdown message
@@ -325,8 +319,6 @@ async fn connect_and_listen<T: Serialize>(
             }
         }
     } // -- loop over messages
-
-    Ok(())
 }
 
 // TODO use trait /template pattern
