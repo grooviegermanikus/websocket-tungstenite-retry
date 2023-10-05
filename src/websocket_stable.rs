@@ -9,20 +9,21 @@ use url::Url;
 use crate::websocket_stable::WebsocketHighLevelError::{
     ConnectionWsError, FatalWsError, RecoverableWsError,
 };
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::time::interval;
-use tokio::{io, select, sync};
+use tokio::{select, sync};
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
 use tokio_tungstenite::tungstenite::{error::Error as WsError, Error, Message};
 use tokio_tungstenite::{connect_async, tungstenite};
 use tokio_util::sync::CancellationToken;
 
-const CHANNEL_SIZE: usize = 1000;
+// power of 2
+const CHANNEL_SIZE: usize = 65536;
 
 // TOKIO-TUNGSTENITE
 
@@ -66,7 +67,7 @@ impl StableWebSocket {
             "WebSocket subscribe to url {:?} (timeout {:?})",
             url, startup_timeout
         );
-        let (message_tx, message_rx) = sync::broadcast::channel(CHANNEL_SIZE);
+        let (message_tx, _message_rx) = sync::broadcast::channel(CHANNEL_SIZE);
         let (sc_tx, mut sc_rx) = sync::mpsc::unbounded_channel();
         let (cc_tx, cc_rx) = sync::mpsc::unbounded_channel();
 
@@ -130,8 +131,7 @@ impl StableWebSocket {
                 // wait for shutting down message
                 loop {
                     let Some(status) = self.status_receiver.recv().await else { break; };
-
-                    println!("status: {:?}", status);
+                    trace!("status: {:?}", status);
 
                     match status {
                         StatusUpdate::ShuttingDown => {
@@ -167,8 +167,14 @@ async fn listen_and_handle_reconnects<T: Serialize>(
 
     let mut interval = interval(Duration::from_millis(200));
 
-    while let Err(highlevel_error) =
-        connect_and_listen(url, sender.clone(), &status_sender, &mut control_receiver, sub).await
+    while let Err(highlevel_error) = connect_and_listen(
+        url,
+        sender.clone(),
+        &status_sender,
+        &mut control_receiver,
+        sub,
+    )
+    .await
     {
         match highlevel_error {
             ConnectionWsError(e) => {

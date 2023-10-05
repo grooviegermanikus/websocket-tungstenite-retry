@@ -1,7 +1,7 @@
 use env_logger::Env;
+use futures_util::future::join_all;
 use serde_json::json;
 use std::time::Duration;
-use futures_util::future::join_all;
 
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use url::Url;
