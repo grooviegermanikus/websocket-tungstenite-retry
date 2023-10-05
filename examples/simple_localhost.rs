@@ -21,7 +21,7 @@ async fn main() {
             "command": "subscribe",
         }), Duration::from_secs(1)).await.unwrap();
 
-    while let Some(msg) = ws.get_message_channel().recv().await {
+    while let Some(msg) = ws.subscribe_message_channel().recv().await {
         println!("msg: {:?}", msg);
     }
 

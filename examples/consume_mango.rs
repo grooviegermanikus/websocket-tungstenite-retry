@@ -24,16 +24,31 @@ async fn main() {
             "command": "subscribe",
             "marketId": "Fgh9JSZ2qfSjCw9RPJ85W2xbihsp2muLvfRztzoVR7f1",
         }), Duration::from_secs(3)).await.unwrap();
-    let mut count = 0;
-    while let Some(msg) = ws.get_message_channel().recv().await {
-        println!("msg: {:?}", msg);
 
-        // if count > 5 {
-        //     println!("shutting down");
-        //     ws.shutdown();
-        // }
-        count += 1;
+
+    {
+        // try create+drop
+        let mut channel = ws.subscribe_message_channel();
+        let _ = channel.recv().await;
     }
+
+    let mut channel_a = ws.subscribe_message_channel();
+    tokio::spawn(async move {
+        let mut count = 0;
+        while let Ok(msg) = channel_a.recv().await {
+            println!("msgA: {:?}", msg);
+            count += 1;
+        }
+    });
+
+    let mut channel_b = ws.subscribe_message_channel();
+    tokio::spawn(async move {
+        let mut count = 0;
+        while let Ok(msg) = channel_b.recv().await {
+            println!("msgB: {:?}", msg);
+            count += 1;
+        }
+    });
 
     ws.join().await;
 

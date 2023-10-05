@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::{io, select, sync};
 use tokio::sync::{Mutex, oneshot, RwLock};
+use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::{Sender, unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, sleep, sleep_until, timeout};
@@ -32,6 +33,8 @@ use tokio_tungstenite::tungstenite::stream::MaybeTlsStream;
 use tokio_util::sync::CancellationToken;
 use crate::websocket_stable::State::Started;
 use crate::websocket_stable::WebsocketHighLevelError::{ConnectionWsError, FatalWsError, RecoverableWsError};
+
+const CHANNEL_SIZE: usize = 1000;
 
 // TOKIO-TUNGSTENITE
 
@@ -50,7 +53,7 @@ pub struct StableWebSocket {
     /// webserver url (e.g. wss://api.dydx.exchange/v3/ws)
     ws_url: Url,
     // channel to send payload messages from worker thread to client
-    message_receiver: UnboundedReceiver<WsMessage>,
+    message_subscription: sync::broadcast::Sender<WsMessage>,
     status_receiver: UnboundedReceiver<StatusUpdate>,
     control_sender: UnboundedSender<ControlMessage>,
     state: State,
@@ -71,25 +74,28 @@ impl StableWebSocket {
     /// url: e.g. wss://your.server.org/ws
     pub async fn new_with_timeout(url: Url, subscription: Value, startup_timeout: Duration) -> anyhow::Result<Self> {
         debug!("WebSocket subscribe to url {:?} (timeout {:?})", url, startup_timeout);
-        let (message_tx, mut message_rx) = sync::mpsc::unbounded_channel();
+        let (message_tx, mut message_rx) = sync::broadcast::channel(CHANNEL_SIZE);
         let (sc_tx, mut sc_rx) = sync::mpsc::unbounded_channel();
         let (cc_tx, cc_rx) = sync::mpsc::unbounded_channel();
 
         // main thread
+        let sender = message_tx.clone();
         let url2 = url.clone();
         let join_handle = tokio::spawn(async move {
             debug!("WebSocket worker thread started");
-            listen_and_handle_reconnects(&url2, startup_timeout, message_tx, sc_tx, cc_rx, &subscription).await;
+            listen_and_handle_reconnects(&url2, startup_timeout, sender, sc_tx, cc_rx, &subscription).await;
             debug!("WebSocket loop exhausted by close frame");
             return; // loop exhausted by close frame
         });
 
+        let subscription_prototype = message_tx.clone();
         // blocking channel and wait for one Subscribed message
         if let Some(StatusUpdate::Subscribed) = sc_rx.recv().await {
             debug!("WebSocket subscribed successfully");
             Ok(Self {
                 ws_url: url,
-                message_receiver: message_rx,
+                // need to call .subscribe
+                message_subscription: subscription_prototype,
                 status_receiver: sc_rx,
                 control_sender: cc_tx,
                 state: State::Started(join_handle)
@@ -100,8 +106,8 @@ impl StableWebSocket {
 
     }
 
-    pub fn get_message_channel(&mut self) -> &mut UnboundedReceiver<WsMessage> {
-        &mut self.message_receiver
+    pub fn subscribe_message_channel(&mut self) -> Receiver<WsMessage> {
+        self.message_subscription.subscribe()
     }
 
     pub async fn join(self) {
@@ -155,7 +161,7 @@ impl StableWebSocket {
 
 async fn listen_and_handle_reconnects<T: Serialize>(url: &Url,
                                                     startup_timeout: Duration,
-                                                    sender: UnboundedSender<WsMessage>,
+                                                    sender: sync::broadcast::Sender<WsMessage>,
                                                     status_sender: UnboundedSender<StatusUpdate>,
                                                     mut control_receiver: UnboundedReceiver<ControlMessage>,
                                                     sub: &T) {
@@ -211,7 +217,7 @@ pub enum ControlMessage {
 }
 
 async fn connect_and_listen<T: Serialize>(
-    url: &Url, sender: &UnboundedSender<WsMessage>, status_sender: &UnboundedSender<StatusUpdate>,
+    url: &Url, sender: &sync::broadcast::Sender<WsMessage>, status_sender: &UnboundedSender<StatusUpdate>,
     control_receiver: &mut UnboundedReceiver<ControlMessage>,
     sub: &T) -> Result<(), WebsocketHighLevelError> {
     let (mut ws_stream, response) = connect_async(url).await.map_err(|e| ConnectionWsError(e))?;

@@ -21,7 +21,7 @@ async fn main() {
     let mut count = 0;
     let mut msg_count = 0;
 
-    while let Some(msg) = ws.get_message_channel().recv().await {
+    while let Some(msg) = ws.subscribe_message_channel().recv().await {
         println!("msg: {:?}", msg);
         msg_count += 1;
         count += 1;
