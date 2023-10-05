@@ -29,6 +29,7 @@ use tokio_tungstenite::tungstenite::error::ProtocolError::ResetWithoutClosingHan
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
 use tokio_tungstenite::tungstenite::http::Response;
 use tokio_tungstenite::tungstenite::stream::MaybeTlsStream;
+use tokio_util::sync::CancellationToken;
 use crate::websocket_stable::State::Started;
 use crate::websocket_stable::WebsocketHighLevelError::{ConnectionWsError, FatalWsError, RecoverableWsError};
 
@@ -66,8 +67,7 @@ impl StableWebSocket {
     pub async fn new(url: Url, subscription: Value) -> anyhow::Result<Self> {
         Self::new_with_timeout(url, subscription, Duration::from_millis(500)).await
     }
-    ///
-    /// url: url of the websocket server
+    /// url: e.g. wss://your.server.org/ws
     pub async fn new_with_timeout(url: Url, subscription: Value, startup_timeout: Duration) -> anyhow::Result<Self> {
         debug!("WebSocket subscribe to url {:?} (timeout {:?})", url, startup_timeout);
         let (message_tx, mut message_rx) = sync::mpsc::unbounded_channel();
@@ -159,7 +159,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(url: &Url,
             ConnectionWsError(e) => {
                 error!("Can't connect - retry: {:?}", e);
                 if start_ts.add(startup_timeout) < Instant::now() {
-                    info!("startup timeout reached: {:?}", Instant::now() - start_ts);
+                    info!("abort on ws error after timeout reached: {:?}", Instant::now() - start_ts);
                     return;
                 }
                 interval.tick().await;
@@ -208,7 +208,7 @@ async fn connect_and_listen<T: Serialize>(
     let (mut ws_stream, response) = connect_async(url).await.map_err(|e| ConnectionWsError(e))?;
     assert_eq!(response.status(), 101, "Error connecting to the server: {:?}", response);
 
-    let shutting_down = Arc::new(AtomicBool::new(false));
+    let shutdown = CancellationToken::new();
 
     let (mut ws_write, mut ws_read) = ws_stream.split();
 
@@ -217,18 +217,20 @@ async fn connect_and_listen<T: Serialize>(
         .map_err(|e| map_error(e))?;
 
     // ping thread - not joined
-    let shutting_down_close_stream = shutting_down.clone();
+    let shutdown_ping = shutdown.clone();
     tokio::spawn(async move {
-        let mut interval_shutdown = interval(Duration::from_millis(500));
         let mut interval_ping = interval(Duration::from_millis(1500));
         loop {
-            if shutting_down_close_stream.load(Ordering::Relaxed) {
-                ws_write.close().await.ok();
-                interval_shutdown.tick().await;
-            } else {
-                ws_write.send(tungstenite::Message::Ping(vec![13,37,42])).await.ok();
-                debug!("Websocket Ping sent (period={:?})", interval_ping.period());
-                interval_ping.tick().await;
+            select! {
+                _ = shutdown_ping.cancelled() => {
+                    ws_write.close().await.ok();
+                    info!("Shutdown signal received - stopping ping thread");
+                    return;
+                }
+                _ = interval_ping.tick() => {
+                    ws_write.send(tungstenite::Message::Ping(vec![13,37,42])).await.ok();
+                    debug!("Websocket Ping sent (period={:?})", interval_ping.period());
+                }
             }
         }
 
@@ -236,11 +238,14 @@ async fn connect_and_listen<T: Serialize>(
         // ws_read.reunite(ws_write).unwrap().close(None).await.unwrap();
     });
 
+    let shutdown_copy = shutdown.clone();
     let interval = interval(Duration::from_millis(1500));
-    let shutting_down_reconnect = shutting_down.clone();
     let mut subscription_confirmed = false;
     loop {
         select! {
+            _ = shutdown_copy.cancelled() => {
+                debug!("shutting down");
+            }
             Some(msg) = ws_read.next() => {
                  match msg.map_err(|e| map_error(e))? {
                     tungstenite::Message::Text(s) => {
@@ -250,19 +255,11 @@ async fn connect_and_listen<T: Serialize>(
                             status_sender.send(StatusUpdate::Subscribed).expect("Can't send to channel");
                             continue;
                         }
-                        if shutting_down_reconnect.load(Ordering::Relaxed) {
-                            debug!("Received Text - but shutting down");
-                            continue;
-                        }
                         debug!("Received Text: {}", s);
                         sender.send(WsMessage::Text(s.clone())).expect("Can't send to channel");
                     }
                     tungstenite::Message::Binary(data) => {
                         debug!("Received Binary: {} bytes", data.len());
-                        if shutting_down_reconnect.load(Ordering::Relaxed) {
-                            debug!("Received Binary - but shutting down");
-                            continue;
-                        }
                         sender.send(WsMessage::Binary(data)).expect("Can't send to channel");
                     }
                     // this close frame might be send from websocket server but in most cases
@@ -277,15 +274,8 @@ async fn connect_and_listen<T: Serialize>(
             Some(control_msg) = control_receiver.recv() => {
                 match control_msg {
                     ControlMessage::Shutdown => {
-                        match shutting_down_reconnect.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed) {
-                            Ok(_) => {
-                                info!("Set shutdown flag");
-                                status_sender.send(StatusUpdate::ShuttingDown).expect("Can't send to channel");
-                            }
-                            Err(_) => {
-                                debug!("Shutdown flag already set");
-                            }
-                        }
+                        shutdown.cancel();
+                        info!("Signal shutdown");
                     }
                 }
                 // ok
