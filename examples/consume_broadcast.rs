@@ -33,12 +33,29 @@ async fn main() {
     .await
     .unwrap();
 
-    let mut channel = ws.subscribe_message_channel();
-    let mut count = 0;
-    while let Ok(msg) = channel.recv().await {
-        println!("msg: {:?}", msg);
-        count += 1;
+    {
+        // try create+drop
+        let mut channel = ws.subscribe_message_channel();
+        let _ = channel.recv().await;
     }
+
+    let mut channel_a = ws.subscribe_message_channel();
+    tokio::spawn(async move {
+        let mut count = 0;
+        while let Ok(msg) = channel_a.recv().await {
+            println!("msgA: {:?}", msg);
+            count += 1;
+        }
+    });
+
+    let mut channel_b = ws.subscribe_message_channel();
+    tokio::spawn(async move {
+        let mut count = 0;
+        while let Ok(msg) = channel_b.recv().await {
+            println!("msgB: {:?}", msg);
+            count += 1;
+        }
+    });
 
     ws.join().await;
 }
