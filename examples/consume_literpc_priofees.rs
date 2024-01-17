@@ -16,7 +16,7 @@ async fn main() {
     )
         .init();
 
-    let rpc_url = "wss://api.mngo.cloud/lite-rpc/v1/".to_string();
+    let rpc_url = "ws://localhost:8891/".to_string();
 
     let mut ws = loop {
         let attempt = StableWebSocket::new_with_timeout(
@@ -25,13 +25,12 @@ async fn main() {
             json!({
             "jsonrpc": "2.0",
             "id": 1,
-            "method": "slotSubscribe",
+            "method": "blockPrioFeesSubscribe",
         }), Duration::from_secs(5)
         ).await;
 
         match &attempt {
             Ok(connected) => {
-                println!("connected!");
                 break attempt.unwrap();
             }
             Err(_) => {
@@ -41,8 +40,6 @@ async fn main() {
             }
         }
     };
-
-    println!("connected - continue");
 
     let mut channel = ws.subscribe_message_channel();
     let mut count = 0;
