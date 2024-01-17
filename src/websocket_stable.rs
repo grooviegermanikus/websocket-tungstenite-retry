@@ -332,15 +332,19 @@ fn is_subscription_confirmed_message(s: &str) -> bool {
     // unsure if all servers return that information
     //  {"success":true,"message":"subscribed to level updates for Fgh9JSZ2qfSjCw9RPJ85W2xbihsp2muLvfRztzoVR7f1"}
 
+    // Solana RPC returns "{\"jsonrpc\":\"2.0\",\"result\":7454,\"id\":1}"
+
     let maybe_value = serde_json::from_str::<Value>(s).unwrap();
-    let success = maybe_value["success"].as_bool().unwrap();
-    if success {
+    let mango_success = maybe_value["success"].as_bool().unwrap_or(false);
+    let solanarpc_success = maybe_value["jsonrpc"].as_str().map(|s| s == "2.0").unwrap_or(false);
+
+    if mango_success || solanarpc_success {
         debug!("Subscription success message: {:?}", s);
     } else {
         warn!("Unexpected subscription response message: {:?}", s);
     }
 
-    success
+    mango_success
 }
 
 #[allow(clippy::enum_variant_names)]
