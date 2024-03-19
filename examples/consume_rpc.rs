@@ -14,13 +14,8 @@ async fn main() {
     )
     .init();
 
-    let rpc_url = env::var("RPC_URL").unwrap_or("wss://api.testnet.rpcpool.com/".to_string());
-
-    if env::var("RPC_URL").is_err() {
-        print!("RPC_URL not set, using public testnet url");
-    }
-
-    println!("RPC_URL: {:?}", rpc_url);
+    let rpc_url = format!("wss://api.testnet.rpcpool.com/{TESTNET_API_TOKEN}",
+                          TESTNET_API_TOKEN = std::env::var("TESTNET_API_TOKEN").unwrap());
 
     let mut ws = StableWebSocket::new_with_timeout(
         Url::parse(rpc_url.as_str()).unwrap(),
