@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use tokio::time::interval;
+use tokio::time::{interval, sleep};
 use tokio::{select, sync};
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
 use tokio_tungstenite::tungstenite::{error::Error as WsError, Error, Message};
@@ -165,7 +165,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(
 ) {
     let start_ts = Instant::now();
 
-    let mut interval = interval(Duration::from_millis(200));
+    let mut interval = interval(Duration::from_millis(800));
 
     while let Err(highlevel_error) = connect_and_listen(
         url,
@@ -198,6 +198,10 @@ async fn listen_and_handle_reconnects<T: Serialize>(
                 // TODO what should happen here?
                 panic!("Fatal error: {:?}", e);
             }
+            WebsocketHighLevelError::SubscriptionError => {
+                warn!("Subscription error - aborting");
+                return;
+            }
         }
     } // -- loop over errors
 
@@ -217,6 +221,7 @@ pub enum WsMessage {
 pub enum StatusUpdate {
     Subscribed,
     ShuttingDown,
+    SubscriptionError,
 }
 
 /// control messages from client to worker thread
@@ -284,11 +289,16 @@ async fn connect_and_listen<T: Serialize>(
             Some(msg) = ws_read.next() => {
                  match msg.map_err(map_error)? {
                     tungstenite::Message::Text(s) => {
-                        if !subscription_confirmed && is_subscription_confirmed_message(s.as_str()) {
-                            debug!("Subscription confirmed");
-                            subscription_confirmed = true;
-                            status_sender.send(StatusUpdate::Subscribed).expect("Can't send to channel");
-                            continue;
+                        if !subscription_confirmed {
+                            if is_subscription_confirmed_message(s.as_str()) {
+                                debug!("Subscription confirmed");
+                                subscription_confirmed = true;
+                                status_sender.send(StatusUpdate::Subscribed).expect("Can't send to channel");
+                                continue;
+                            } else {
+                                info!("Subscription failed - shutting down");
+                                return Err(WebsocketHighLevelError::SubscriptionError);
+                            }
                         }
                         debug!("Received Text: {}", s);
                         if sender.receiver_count() > 0 {
@@ -334,9 +344,12 @@ fn is_subscription_confirmed_message(s: &str) -> bool {
 
     // Solana RPC returns "{\"jsonrpc\":\"2.0\",\"result\":7454,\"id\":1}"
 
+
     let maybe_value = serde_json::from_str::<Value>(s).unwrap();
     let mango_success = maybe_value["success"].as_bool().unwrap_or(false);
-    let solanarpc_success = maybe_value["jsonrpc"].as_str().map(|s| s == "2.0").unwrap_or(false);
+    let solanarpc_success =
+        maybe_value["jsonrpc"].as_str().map(|s| s == "2.0").unwrap_or(false)
+        && !maybe_value["error"].is_object();
 
     if mango_success || solanarpc_success {
         debug!("Subscription success message: {:?}", s);
@@ -344,7 +357,7 @@ fn is_subscription_confirmed_message(s: &str) -> bool {
         warn!("Unexpected subscription response message: {:?}", s);
     }
 
-    mango_success
+    mango_success || solanarpc_success
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -353,6 +366,7 @@ enum WebsocketHighLevelError {
     // TODO add max retries
     RecoverableWsError(WsError),
     FatalWsError(WsError),
+    SubscriptionError,
 }
 
 fn map_error(e: Error) -> WebsocketHighLevelError {
