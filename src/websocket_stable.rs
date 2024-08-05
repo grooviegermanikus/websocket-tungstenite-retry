@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use tokio::time::{interval, sleep};
+use tokio::time::{interval, Interval, sleep};
 use tokio::{select, sync};
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
 use tokio_tungstenite::tungstenite::{error::Error as WsError, Error, Message};
@@ -163,7 +163,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(
     mut control_receiver: UnboundedReceiver<ControlMessage>,
     sub: &T,
 ) {
-    let start_ts = Instant::now();
+    let mut start_ts = Instant::now();
 
     let mut interval = interval(Duration::from_millis(800));
 
@@ -187,6 +187,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(
                     return;
                 }
                 interval.tick().await;
+                start_ts = Instant::now();
                 continue;
             }
             RecoverableWsError(e) => {
