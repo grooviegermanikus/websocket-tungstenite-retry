@@ -6,16 +6,14 @@ use std::pin::Pin;
 use std::time::{Duration, Instant};
 use url::Url;
 
-use crate::websocket_stable::WebsocketHighLevelError::{
-    ConnectionWsError, FatalWsError, RecoverableWsError,
-};
+use crate::websocket_stable::WebsocketHighLevelError::*;
 use log::{debug, error, info, trace, warn};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use tokio::time::{interval, Interval, sleep};
+use tokio::time::{interval, Interval, sleep, timeout};
 use tokio::{select, sync};
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
 use tokio_tungstenite::tungstenite::{error::Error as WsError, Error, Message};
@@ -179,9 +177,10 @@ async fn listen_and_handle_reconnects<T: Serialize>(
         match highlevel_error {
             ConnectionWsError(e) => {
                 error!("Can't connect - retry: {:?}", e);
-                if start_ts.add(startup_timeout) < Instant::now() {
-                    info!(
-                        "abort on ws error after timeout reached: {:?}",
+                let elapsed_since_start = Instant::now() - start_ts;
+                if elapsed_since_start> startup_timeout {
+                    error!(
+                        "ws error after timeout reached, time={:?} - aborting",
                         Instant::now() - start_ts
                     );
                     return;
@@ -191,7 +190,12 @@ async fn listen_and_handle_reconnects<T: Serialize>(
                 continue;
             }
             RecoverableWsError(e) => {
-                error!("Recoverable error - retry: {:?}", e);
+                error!("Recoverable wserror - retry: {:?}", e);
+                interval.tick().await;
+                continue;
+            }
+            RecoverableMiscError => {
+                error!("Recoverable misc error - retry");
                 interval.tick().await;
                 continue;
             }
@@ -231,6 +235,8 @@ pub enum ControlMessage {
     Shutdown,
 }
 
+const TIMEOUT_WARNING: Duration = Duration::from_millis(1500);
+
 async fn connect_and_listen<T: Serialize>(
     url: &Url,
     sender: sync::broadcast::Sender<WsMessage>,
@@ -238,6 +244,7 @@ async fn connect_and_listen<T: Serialize>(
     control_receiver: &mut UnboundedReceiver<ControlMessage>,
     sub: &T,
 ) -> Result<(), WebsocketHighLevelError> {
+    info!("WS-Connecting to {:?}", url);
     let (ws_stream, response) = connect_async(url).await.map_err(ConnectionWsError)?;
     assert_eq!(
         response.status(),
@@ -287,42 +294,53 @@ async fn connect_and_listen<T: Serialize>(
                 debug!("shutting down");
                 return Ok(());
             }
-            Some(msg) = ws_read.next() => {
-                 match msg.map_err(map_error)? {
-                    tungstenite::Message::Text(s) => {
-                        if !subscription_confirmed {
-                            if is_subscription_confirmed_message(s.as_str()) {
-                                debug!("Subscription confirmed");
-                                subscription_confirmed = true;
-                                status_sender.send(StatusUpdate::Subscribed).expect("Can't send to channel");
-                                continue;
-                            } else {
-                                info!("Subscription failed - shutting down");
-                                return Err(WebsocketHighLevelError::SubscriptionError);
+            maybe_msg = timeout(TIMEOUT_WARNING, ws_read.next()) => {
+                match maybe_msg {
+                    Ok(Some(msg)) => {
+                        match msg.map_err(map_error)? {
+                            tungstenite::Message::Text(s) => {
+                                if !subscription_confirmed {
+                                    if is_subscription_confirmed_message(s.as_str()) {
+                                        debug!("Subscription confirmed");
+                                        subscription_confirmed = true;
+                                        status_sender.send(StatusUpdate::Subscribed).expect("Can't send to channel");
+                                        continue;
+                                    } else {
+                                        info!("Subscription failed - shutting down");
+                                        return Err(WebsocketHighLevelError::SubscriptionError);
+                                    }
+                                }
+                                debug!("Received Text: {}", s);
+                                if sender.receiver_count() > 0 {
+                                    sender.send(WsMessage::Text(s.clone())).expect("Can't send to channel");
+                                } else {
+                                    debug!("Dropping message - no receivers");
+                                }
                             }
-                        }
-                        debug!("Received Text: {}", s);
-                        if sender.receiver_count() > 0 {
-                            sender.send(WsMessage::Text(s.clone())).expect("Can't send to channel");
-                        } else {
-                            debug!("Dropping message - no receivers");
+                            tungstenite::Message::Binary(data) => {
+                                debug!("Received Binary: {} bytes", data.len());
+                                if sender.receiver_count() > 0 {
+                                    sender.send(WsMessage::Binary(data)).expect("Can't send to channel");
+                                } else {
+                                    debug!("Dropping message - no receivers");
+                                }
+                            }
+                            // this close frame might be send from websocket server but in most cases
+                            // it is the server's response to our close request triggered by Shutdown message
+                            tungstenite::Message::Close(_) => {
+                                debug!("Received websocket close frame");
+                                return Ok(());
+                            }
+                            Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => continue,
                         }
                     }
-                    tungstenite::Message::Binary(data) => {
-                        debug!("Received Binary: {} bytes", data.len());
-                        if sender.receiver_count() > 0 {
-                            sender.send(WsMessage::Binary(data)).expect("Can't send to channel");
-                        } else {
-                            debug!("Dropping message - no receivers");
-                        }
+                    Ok(None) => {
+                        debug!("Subscription stream closed");
+                        return Err(RecoverableMiscError);
                     }
-                    // this close frame might be send from websocket server but in most cases
-                    // it is the server's response to our close request triggered by Shutdown message
-                    tungstenite::Message::Close(_) => {
-                        debug!("Received websocket close frame");
-                        return Ok(());
+                    Err(_elapsed) => {
+                        debug!("Subscription timed out with no data - continue");
                     }
-                    Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => continue,
                 }
             }
             Some(control_msg) = control_receiver.recv() => {
@@ -366,6 +384,7 @@ enum WebsocketHighLevelError {
     ConnectionWsError(WsError),
     // TODO add max retries
     RecoverableWsError(WsError),
+    RecoverableMiscError,
     FatalWsError(WsError),
     SubscriptionError,
 }
