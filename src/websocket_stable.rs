@@ -51,7 +51,7 @@ enum State {
 #[derive(Clone)]
 struct ConnectionParams {
     url: Url,
-    is_subscription_confirmed_message: fn(&str) -> bool,
+    is_subscription_confirmed_message: fn(&str) -> anyhow::Result<()>,
 }
 
 impl StableWebSocket {
@@ -77,7 +77,7 @@ impl StableWebSocket {
     pub async fn new_with_timeout_and_success_callback(
         url: Url,
         subscription: Value,
-        success_callback: fn(&str) -> bool,
+        success_callback: fn(&str) -> anyhow::Result<()>,
         startup_timeout: Duration,
     ) -> anyhow::Result<Self> {
         debug!(
@@ -326,14 +326,17 @@ async fn connect_and_listen<T: Serialize>(
                         match msg.map_err(map_error)? {
                             tungstenite::Message::Text(s) => {
                                 if !subscription_confirmed {
-                                    if is_subscription_confirmed_message(s.as_str()) {
-                                        debug!("Subscription confirmed");
-                                        subscription_confirmed = true;
-                                        status_sender.send(StatusUpdate::Subscribed).expect("Can't send to channel");
-                                        continue;
-                                    } else {
-                                        info!("Subscription failed - shutting down");
-                                        return Err(WebsocketHighLevelError::SubscriptionError);
+                                    match is_subscription_confirmed_message(s.as_str()) {
+                                        Ok(s) => {
+                                            debug!("Subscription confirmed");
+                                            subscription_confirmed = true;
+                                            status_sender.send(StatusUpdate::Subscribed).expect("Can't send to channel");
+                                            continue;
+                                        }
+                                        Err(err) => {
+                                            info!("Subscription failed with <{}> - shutting down", err);
+                                            return Err(WebsocketHighLevelError::SubscriptionError);
+                                        }
                                     }
                                 }
                                 debug!("Received Text: {}", s);
@@ -383,7 +386,7 @@ async fn connect_and_listen<T: Serialize>(
 }
 
 // TODO use trait /template pattern
-pub fn is_subscription_confirmed_message_solanarpc_mango(s: &str) -> bool {
+pub fn is_subscription_confirmed_message_solanarpc_mango(s: &str) -> anyhow::Result<()> {
     // unsure if all servers return that information
     //  {"success":true,"message":"subscribed to level updates for Fgh9JSZ2qfSjCw9RPJ85W2xbihsp2muLvfRztzoVR7f1"}
 
@@ -399,11 +402,12 @@ pub fn is_subscription_confirmed_message_solanarpc_mango(s: &str) -> bool {
 
     if mango_success || solanarpc_success {
         debug!("Subscription success message: {:?}", s);
+        Ok(())
     } else {
         warn!("Unexpected subscription response message: {:?}", s);
+        bail!("Unexpected subscription response message: {:?}", s);
     }
 
-    mango_success || solanarpc_success
 }
 
 #[allow(clippy::enum_variant_names)]
