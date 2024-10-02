@@ -17,11 +17,12 @@ async fn main() {
     )
     .init();
 
-    for i in 1..=10 {
+    for i in 1..=100 {
         tokio::spawn(start_client(format!("client-{}", i)));
     }
 
-    sleep(Duration::from_secs(1000)).await;
+    sleep(Duration::from_secs(120)).await;
+    println!("DONE - shutting down");
 }
 
 async fn start_client(client_id: String) {
@@ -66,7 +67,10 @@ async fn start_client(client_id: String) {
         if let WsMessage::Text(msg) = msg {
             let value = serde_json::from_str::<Value>(&msg).unwrap();
             let amount = value["amount"].as_f64().expect("amount as f64");
-            println!("diff_send_vs_ws_recv = {}ms", epoch_ms_last_digits - amount);
+            // ignore time close to upper bound
+            if amount < 95_000.0 {
+                println!("diff_send_vs_ws_recv = {}ms", epoch_ms_last_digits - amount);
+            }
         }
 
         count += 1;
