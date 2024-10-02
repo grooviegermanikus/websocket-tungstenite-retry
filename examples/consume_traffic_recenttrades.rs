@@ -16,20 +16,16 @@ async fn main() {
     )
     .init();
 
-    let rpc_url = "ws://localhost:8891/".to_string();
+    let ws_url = "wss://api.mngo.cloud/dojo/v1/".to_string();
 
     let mut ws = loop {
         let attempt = StableWebSocket::new_with_timeout(
-            Url::parse(rpc_url.as_str()).unwrap(),
-            // https://solana.com/docs/rpc/websocket/slotsubscribe#code-sample
+            Url::parse(ws_url.as_str()).unwrap(),
             json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "blockPrioFeesSubscribe",
-            }),
-            Duration::from_secs(5),
-        )
-        .await;
+            "command": "subscribe",
+            "mintIds": ["J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn-So11111111111111111111111111111111111111112"],
+        }), Duration::from_secs(5)
+        ).await;
 
         match &attempt {
             Ok(connected) => {
