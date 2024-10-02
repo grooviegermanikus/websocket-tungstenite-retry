@@ -1,8 +1,5 @@
 use anyhow::bail;
 use futures_util::{SinkExt, StreamExt};
-use std::future::Future;
-use std::ops::Add;
-use std::pin::Pin;
 use std::time::{Duration, Instant};
 use url::Url;
 
@@ -13,8 +10,8 @@ use serde_json::{json, Value};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use tokio::time::{interval, Interval, sleep, timeout};
 use tokio::{select, sync};
+use tokio::time::{interval, timeout};
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
 use tokio_tungstenite::tungstenite::{error::Error as WsError, Error, Message};
 use tokio_tungstenite::{connect_async, tungstenite};
@@ -51,14 +48,36 @@ enum State {
     Stopped,
 }
 
+#[derive(Clone)]
+struct ConnectionParams {
+    url: Url,
+    is_subscription_confirmed_message: fn(&str) -> bool,
+}
+
 impl StableWebSocket {
     pub async fn new(url: Url, subscription: Value) -> anyhow::Result<Self> {
         Self::new_with_timeout(url, subscription, Duration::from_millis(500)).await
     }
+
     /// url: e.g. wss://your.server.org/ws
     pub async fn new_with_timeout(
         url: Url,
         subscription: Value,
+        startup_timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        Self::new_with_timeout_and_success_callback(
+            url,
+            subscription,
+            is_subscription_confirmed_message_solanarpc_mango,
+            startup_timeout,
+        )
+        .await
+    }
+
+    pub async fn new_with_timeout_and_success_callback(
+        url: Url,
+        subscription: Value,
+        success_callback: fn(&str) -> bool,
         startup_timeout: Duration,
     ) -> anyhow::Result<Self> {
         debug!(
@@ -71,11 +90,14 @@ impl StableWebSocket {
 
         // main thread
         let sender = message_tx.clone();
-        let url2 = url.clone();
+        let connection_params = ConnectionParams {
+            url: url.clone(),
+            is_subscription_confirmed_message: success_callback,
+        };
         let join_handle = tokio::spawn(async move {
             debug!("WebSocket worker thread started");
             listen_and_handle_reconnects(
-                &url2,
+                connection_params,
                 startup_timeout,
                 sender,
                 sc_tx,
@@ -128,7 +150,9 @@ impl StableWebSocket {
 
                 // wait for shutting down message
                 loop {
-                    let Some(status) = self.status_receiver.recv().await else { break; };
+                    let Some(status) = self.status_receiver.recv().await else {
+                        break;
+                    };
                     trace!("status: {:?}", status);
 
                     match status {
@@ -154,7 +178,7 @@ impl StableWebSocket {
 }
 
 async fn listen_and_handle_reconnects<T: Serialize>(
-    url: &Url,
+    connection_params: ConnectionParams,
     startup_timeout: Duration,
     sender: sync::broadcast::Sender<WsMessage>,
     status_sender: UnboundedSender<StatusUpdate>,
@@ -166,7 +190,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(
     let mut interval = interval(Duration::from_millis(800));
 
     while let Err(highlevel_error) = connect_and_listen(
-        url,
+        connection_params.clone(),
         sender.clone(),
         &status_sender,
         &mut control_receiver,
@@ -178,7 +202,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(
             ConnectionWsError(e) => {
                 error!("Can't connect - retry: {:?}", e);
                 let elapsed_since_start = Instant::now() - start_ts;
-                if elapsed_since_start> startup_timeout {
+                if elapsed_since_start > startup_timeout {
                     error!(
                         "ws error after timeout reached, time={:?} - aborting",
                         Instant::now() - start_ts
@@ -238,12 +262,14 @@ pub enum ControlMessage {
 const TIMEOUT_WARNING: Duration = Duration::from_millis(1500);
 
 async fn connect_and_listen<T: Serialize>(
-    url: &Url,
+    connection_params: ConnectionParams,
     sender: sync::broadcast::Sender<WsMessage>,
     status_sender: &UnboundedSender<StatusUpdate>,
     control_receiver: &mut UnboundedReceiver<ControlMessage>,
     sub: &T,
 ) -> Result<(), WebsocketHighLevelError> {
+    let url = connection_params.url;
+    let is_subscription_confirmed_message = connection_params.is_subscription_confirmed_message;
     info!("WS-Connecting to {:?}", url);
     let (ws_stream, response) = connect_async(url).await.map_err(ConnectionWsError)?;
     assert_eq!(
@@ -357,17 +383,18 @@ async fn connect_and_listen<T: Serialize>(
 }
 
 // TODO use trait /template pattern
-fn is_subscription_confirmed_message(s: &str) -> bool {
+pub fn is_subscription_confirmed_message_solanarpc_mango(s: &str) -> bool {
     // unsure if all servers return that information
     //  {"success":true,"message":"subscribed to level updates for Fgh9JSZ2qfSjCw9RPJ85W2xbihsp2muLvfRztzoVR7f1"}
 
     // Solana RPC returns "{\"jsonrpc\":\"2.0\",\"result\":7454,\"id\":1}"
 
-
     let maybe_value = serde_json::from_str::<Value>(s).unwrap();
     let mango_success = maybe_value["success"].as_bool().unwrap_or(false);
-    let solanarpc_success =
-        maybe_value["jsonrpc"].as_str().map(|s| s == "2.0").unwrap_or(false)
+    let solanarpc_success = maybe_value["jsonrpc"]
+        .as_str()
+        .map(|s| s == "2.0")
+        .unwrap_or(false)
         && !maybe_value["error"].is_object();
 
     if mango_success || solanarpc_success {
