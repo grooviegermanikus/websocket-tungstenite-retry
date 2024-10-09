@@ -17,11 +17,11 @@ async fn main() {
     )
     .init();
 
-    for i in 1..=100 {
+    for i in 1..=500 {
         tokio::spawn(start_client(format!("client-{}", i)));
     }
 
-    sleep(Duration::from_secs(120)).await;
+    sleep(Duration::from_secs(1800)).await;
     println!("DONE - shutting down");
 }
 
@@ -33,7 +33,7 @@ async fn start_client(client_id: String) {
             Url::parse(ws_url.as_str()).unwrap(),
             json!({
                 "command": "subscribe",
-                "mintIds": ["J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn-So11111111111111111111111111111111111111112"],
+                "mintIds": ["So11111111111111111111111111111111111111112-So11111111111111111111111111111111111111112"],
             }),
             |msg| {
                 // {"Status":{"success":true,"message":"subscribed to J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn-So11111111111111111111111111111111111111112 market with id: J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn-So11111111111111111111111111111111111111112"}}
@@ -66,11 +66,7 @@ async fn start_client(client_id: String) {
 
         if let WsMessage::Text(msg) = msg {
             let value = serde_json::from_str::<Value>(&msg).unwrap();
-            let amount = value["amount"].as_f64().expect("amount as f64");
-            // ignore time close to upper bound
-            if amount < 95_000.0 {
-                println!("diff_send_vs_ws_recv = {}ms", epoch_ms_last_digits - amount);
-            }
+            println!("msg = {}", value);
         }
 
         count += 1;
