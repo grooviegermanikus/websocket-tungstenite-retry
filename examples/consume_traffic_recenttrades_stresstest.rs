@@ -17,16 +17,17 @@ async fn main() {
     )
     .init();
 
+    let websocket_url = env::var("WEBSOCKET_URL").expect("WEBSOCKET_URL must be set");
+
     for i in 1..=500 {
-        tokio::spawn(start_client(format!("client-{}", i)));
+        tokio::spawn(start_client(websocket_url.clone(), format!("client-{}", i)));
     }
 
     sleep(Duration::from_secs(1800)).await;
     println!("DONE - shutting down");
 }
 
-async fn start_client(client_id: String) {
-    let ws_url = "ws://localhost:6000/recent-trades-ws".to_string();
+async fn start_client(ws_url: String, client_id: String) {
 
     let mut ws = loop {
         let attempt = StableWebSocket::new_with_timeout_and_success_callback(
