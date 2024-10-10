@@ -4,6 +4,8 @@ use std::env;
 use std::thread::Thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::bail;
+use csv::ReaderBuilder;
+use itertools::Itertools;
 
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::time::sleep;
@@ -19,22 +21,39 @@ async fn main() {
 
     let websocket_url = env::var("WEBSOCKET_URL").expect("WEBSOCKET_URL must be set");
 
+    let csv_file_pairs = include_bytes!("popular-pairs.csv");
+
+    let mut rdr = ReaderBuilder::new()
+        .delimiter(b'\t')
+        .from_reader(&csv_file_pairs[..]);
+
+    let pairs: Vec<(String, String)> = rdr.records()
+        .flatten()
+        .map(|pair| {
+            let base_mint = pair.get(0).unwrap();
+            let quote_mint = pair.get(1).unwrap();
+            (base_mint.to_string(), quote_mint.to_string())
+        }).collect_vec();
+
     for i in 1..=500 {
-        tokio::spawn(start_client(websocket_url.clone(), format!("client-{}", i)));
+        let (base_mint, quote_mint) = pairs.get(i % pairs.len()).unwrap().clone();
+
+        tokio::spawn(start_client(websocket_url.clone(), format!("client-{}", i), (base_mint, quote_mint)));
     }
 
     sleep(Duration::from_secs(1800)).await;
     println!("DONE - shutting down");
 }
 
-async fn start_client(ws_url: String, client_id: String) {
+async fn start_client(ws_url: String, client_id: String, (base_mint, quote_mint): (String, String)) {
 
     let mut ws = loop {
         let attempt = StableWebSocket::new_with_timeout_and_success_callback(
             Url::parse(ws_url.as_str()).unwrap(),
             json!({
                 "command": "subscribe",
-                "mintIds": ["So11111111111111111111111111111111111111112-So11111111111111111111111111111111111111112"],
+                // "mintIds": ["So11111111111111111111111111111111111111112-So11111111111111111111111111111111111111112"],
+                "mintIds": [format!("{}-{}", base_mint, quote_mint)],
             }),
             |msg| {
                 // {"Status":{"success":true,"message":"subscribed to J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn-So11111111111111111111111111111111111111112 market with id: J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn-So11111111111111111111111111111111111111112"}}
