@@ -270,7 +270,7 @@ async fn connect_and_listen<T: Serialize>(
 ) -> Result<(), WebsocketHighLevelError> {
     let url = connection_params.url;
     let is_subscription_confirmed_message = connection_params.is_subscription_confirmed_message;
-    info!("WS-Connecting to {:?}", url);
+    trace!("Connecting to websocket url <{}>", url.to_string());
     let (ws_stream, response) = connect_async(url).await.map_err(ConnectionWsError)?;
     assert_eq!(
         response.status(),
