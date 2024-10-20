@@ -6,9 +6,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::bail;
 use csv::ReaderBuilder;
 use itertools::Itertools;
+use tokio::pin;
 
 use tokio::sync::mpsc::{Sender, UnboundedSender};
-use tokio::time::sleep;
+use tokio::time::{Instant, sleep};
 use url::Url;
 use websocket_tungstenite_retry::websocket_stable::{StableWebSocket, WsMessage};
 
@@ -44,6 +45,17 @@ async fn main() {
     sleep(Duration::from_secs(1800)).await;
     println!("DONE - shutting down");
 }
+
+
+async fn spawn_get_our_grpc_geyser_slot(oneshot: Sender<u64>) {
+    let started_at = Instant::now();
+
+    tokio::spawn(async move {
+
+    });
+}
+
+
 
 async fn start_client(ws_url: String, client_id: String, (base_mint, quote_mint): (String, String)) {
 
@@ -82,11 +94,11 @@ async fn start_client(ws_url: String, client_id: String, (base_mint, quote_mint)
     let mut count = 0;
     while let Ok(msg) = channel.recv().await {
         let epoch_ms_last_digits = (unix_millis_now() % 100_000) as f64;
-        println!("[{}, epoch_digits {}] msg: {:?}", client_id, epoch_ms_last_digits, msg);
 
         if let WsMessage::Text(msg) = msg {
             let value = serde_json::from_str::<Value>(&msg).unwrap();
-            println!("msg = {}", value);
+            // println!("msg = {}", value);
+            println!("{}", value["TradeUpdate"]["trade"]["slot"]);
         }
 
         count += 1;

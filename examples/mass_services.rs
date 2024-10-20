@@ -42,7 +42,7 @@ async fn createservice(name: String, total_counter: Arc<AtomicI32>) {
 
     let mut count = 1;
     while let Ok(Text(msg)) = ws.subscribe_message_channel().recv().await {
-        let mut value = serde_json::from_str::<Value>(msg.as_str()).unwrap();
+        let value = serde_json::from_str::<Value>(msg.as_str()).unwrap();
         if value.get("update").is_some() {
             info!(
                 "{} - update#: {:?}",
