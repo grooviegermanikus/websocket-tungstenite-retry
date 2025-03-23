@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use tokio::{select, sync};
 use tokio::time::{interval, timeout};
+use tokio::{select, sync};
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
 use tokio_tungstenite::tungstenite::{error::Error as WsError, Error, Message};
 use tokio_tungstenite::{connect_async, tungstenite};
@@ -327,7 +327,7 @@ async fn connect_and_listen<T: Serialize>(
                             tungstenite::Message::Text(s) => {
                                 if !subscription_confirmed {
                                     match is_subscription_confirmed_message(s.as_str()) {
-                                        Ok(s) => {
+                                        Ok(_s) => {
                                             debug!("Subscription confirmed");
                                             subscription_confirmed = true;
                                             status_sender.send(StatusUpdate::Subscribed).expect("Can't send to channel");
@@ -407,7 +407,6 @@ pub fn is_subscription_confirmed_message_solanarpc_mango(s: &str) -> anyhow::Res
         warn!("Unexpected subscription response message: {:?}", s);
         bail!("Unexpected subscription response message: {:?}", s);
     }
-
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -431,12 +430,13 @@ fn map_error(e: Error) -> WebsocketHighLevelError {
         Error::Tls(_) => FatalWsError(e),
         Error::Capacity(_) => RecoverableWsError(e),
         Error::Protocol(_) => RecoverableWsError(e),
-        Error::SendQueueFull(_) => FatalWsError(e),
         Error::Utf8 => FatalWsError(e),
         Error::Url(UnableToConnect(_)) => RecoverableWsError(e),
         Error::Url(_) => FatalWsError(e),
         // e.g. Recoverable error - retry: Http(Response { status: 401, version: HTTP/1.1, ...)
         Error::Http(_) => RecoverableWsError(e),
         Error::HttpFormat(_) => RecoverableWsError(e),
+        Error::WriteBufferFull(_) => RecoverableWsError(e),
+        Error::AttackAttempt => FatalWsError(e),
     }
 }
