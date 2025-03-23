@@ -2,7 +2,6 @@ use env_logger::Env;
 use serde_json::json;
 use std::time::Duration;
 
-use tokio::sync::mpsc::{Sender, UnboundedSender};
 use url::Url;
 use websocket_tungstenite_retry::websocket_stable::StableWebSocket;
 
@@ -34,10 +33,8 @@ async fn main() {
     .unwrap();
 
     let mut channel = ws.subscribe_message_channel();
-    let mut count = 0;
     while let Ok(msg) = channel.recv().await {
         println!("msg: {:?}", msg);
-        count += 1;
     }
 
     ws.join().await;

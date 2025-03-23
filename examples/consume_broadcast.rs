@@ -3,7 +3,6 @@ use futures_util::future::join_all;
 use serde_json::json;
 use std::time::Duration;
 
-use tokio::sync::mpsc::{Sender, UnboundedSender};
 use url::Url;
 use websocket_tungstenite_retry::websocket_stable::StableWebSocket;
 

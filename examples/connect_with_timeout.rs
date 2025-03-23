@@ -1,6 +1,5 @@
 use env_logger::Env;
 use serde_json::json;
-use std::future::Future;
 use std::time::{Duration, Instant};
 use url::Url;
 use websocket_tungstenite_retry::websocket_stable::StableWebSocket;
@@ -27,7 +26,7 @@ async fn wait_1sec() {
     )
     .await;
 
-    assert_eq!(result.is_err(), true);
+    assert!(result.is_err());
     assert!(start.elapsed().as_secs() >= 1);
     assert!(start.elapsed().as_secs() < 2);
 }
@@ -43,7 +42,7 @@ async fn wait_3secs() {
     )
     .await;
 
-    assert_eq!(result.is_err(), true);
+    assert!(result.is_err());
     assert!(start.elapsed().as_secs() >= 3);
     assert!(start.elapsed().as_secs() < 4);
 }
