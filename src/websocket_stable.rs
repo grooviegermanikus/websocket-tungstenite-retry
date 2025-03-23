@@ -190,7 +190,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(
 
     let mut interval = interval(Duration::from_millis(800));
 
-    while let Err(highlevel_error) = connect_and_listen(
+    while let Err(high_level_error) = connect_and_listen(
         connection_params.clone(),
         sender.clone(),
         &status_sender,
@@ -199,7 +199,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(
     )
     .await
     {
-        match highlevel_error {
+        match high_level_error {
             ConnectionWsError(e) => {
                 error!("Can't connect - retry: {:?}", e);
                 let elapsed_since_start = Instant::now() - start_ts;
