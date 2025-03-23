@@ -13,9 +13,10 @@ use tokio::task::JoinHandle;
 use tokio::time::{interval, timeout};
 use tokio::{select, sync};
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
+use tokio_tungstenite::tungstenite::Utf8Bytes;
 use tokio_tungstenite::tungstenite::{error::Error as WsError, Error, Message};
 use tokio_tungstenite::{connect_async, tungstenite};
-use tokio_util::sync::CancellationToken;
+use tokio_util::{bytes::Bytes, sync::CancellationToken};
 
 // power of 2
 const CHANNEL_SIZE: usize = 65536;
@@ -241,8 +242,8 @@ async fn listen_and_handle_reconnects<T: Serialize>(
 /// payload messages from worker thread to client
 #[derive(Debug, Clone)]
 pub enum WsMessage {
-    Text(String),
-    Binary(Vec<u8>),
+    Text(Utf8Bytes),
+    Binary(Bytes),
 }
 
 /// control messages from worker thread to client
@@ -303,7 +304,7 @@ async fn connect_and_listen<T: Serialize>(
                     return;
                 }
                 _ = interval_ping.tick() => {
-                    ws_write.send(tungstenite::Message::Ping(vec![13,37,42])).await.ok();
+                    ws_write.send(tungstenite::Message::Ping(Bytes::from(vec![13,37,42]))).await.ok();
                     debug!("Websocket Ping sent (period={:?})", interval_ping.period());
                 }
             }
@@ -341,7 +342,7 @@ async fn connect_and_listen<T: Serialize>(
                                 }
                                 debug!("Received Text: {}", s);
                                 if sender.receiver_count() > 0 {
-                                    sender.send(WsMessage::Text(s.clone())).expect("Can't send to channel");
+                                    sender.send(WsMessage::Text(s)).expect("Can't send to channel");
                                 } else {
                                     debug!("Dropping message - no receivers");
                                 }
