@@ -1,7 +1,5 @@
 use env_logger::Env;
 use serde_json::json;
-use std::future::Future;
-use std::time::Duration;
 use url::Url;
 use websocket_tungstenite_retry::websocket_stable::StableWebSocket;
 

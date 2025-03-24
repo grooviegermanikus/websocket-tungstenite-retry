@@ -1,7 +1,6 @@
 use env_logger::Env;
 use futures_util::future::join_all;
 use serde_json::{json, Value};
-use std::future::Future;
 use std::sync::atomic::AtomicI32;
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,7 +27,7 @@ async fn main() {
     join_all(list).await;
 }
 
-async fn createservice(name: String, total_counter: Arc<AtomicI32>) {
+async fn createservice(name: String, _total_counter: Arc<AtomicI32>) {
     let mut ws = StableWebSocket::new_with_timeout(
         Url::parse("wss://api.mngo.cloud/orderbook/v1/").unwrap(),
         json!({
@@ -42,7 +41,7 @@ async fn createservice(name: String, total_counter: Arc<AtomicI32>) {
 
     let mut count = 1;
     while let Ok(Text(msg)) = ws.subscribe_message_channel().recv().await {
-        let mut value = serde_json::from_str::<Value>(msg.as_str()).unwrap();
+        let value = serde_json::from_str::<Value>(msg.as_str()).unwrap();
         if value.get("update").is_some() {
             info!(
                 "{} - update#: {:?}",

@@ -10,12 +10,13 @@ use serde_json::{json, Value};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use tokio::{select, sync};
 use tokio::time::{interval, timeout};
+use tokio::{select, sync};
 use tokio_tungstenite::tungstenite::error::UrlError::UnableToConnect;
+use tokio_tungstenite::tungstenite::Utf8Bytes;
 use tokio_tungstenite::tungstenite::{error::Error as WsError, Error, Message};
 use tokio_tungstenite::{connect_async, tungstenite};
-use tokio_util::sync::CancellationToken;
+use tokio_util::{bytes::Bytes, sync::CancellationToken};
 
 // power of 2
 const CHANNEL_SIZE: usize = 65536;
@@ -189,7 +190,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(
 
     let mut interval = interval(Duration::from_millis(800));
 
-    while let Err(highlevel_error) = connect_and_listen(
+    while let Err(high_level_error) = connect_and_listen(
         connection_params.clone(),
         sender.clone(),
         &status_sender,
@@ -198,7 +199,7 @@ async fn listen_and_handle_reconnects<T: Serialize>(
     )
     .await
     {
-        match highlevel_error {
+        match high_level_error {
             ConnectionWsError(e) => {
                 error!("Can't connect - retry: {:?}", e);
                 let elapsed_since_start = Instant::now() - start_ts;
@@ -241,8 +242,8 @@ async fn listen_and_handle_reconnects<T: Serialize>(
 /// payload messages from worker thread to client
 #[derive(Debug, Clone)]
 pub enum WsMessage {
-    Text(String),
-    Binary(Vec<u8>),
+    Text(Utf8Bytes),
+    Binary(Bytes),
 }
 
 /// control messages from worker thread to client
@@ -303,7 +304,7 @@ async fn connect_and_listen<T: Serialize>(
                     return;
                 }
                 _ = interval_ping.tick() => {
-                    ws_write.send(tungstenite::Message::Ping(vec![13,37,42])).await.ok();
+                    ws_write.send(tungstenite::Message::Ping(Bytes::from(vec![13,37,42]))).await.ok();
                     debug!("Websocket Ping sent (period={:?})", interval_ping.period());
                 }
             }
@@ -327,7 +328,7 @@ async fn connect_and_listen<T: Serialize>(
                             tungstenite::Message::Text(s) => {
                                 if !subscription_confirmed {
                                     match is_subscription_confirmed_message(s.as_str()) {
-                                        Ok(s) => {
+                                        Ok(_s) => {
                                             debug!("Subscription confirmed");
                                             subscription_confirmed = true;
                                             status_sender.send(StatusUpdate::Subscribed).expect("Can't send to channel");
@@ -341,7 +342,7 @@ async fn connect_and_listen<T: Serialize>(
                                 }
                                 debug!("Received Text: {}", s);
                                 if sender.receiver_count() > 0 {
-                                    sender.send(WsMessage::Text(s.clone())).expect("Can't send to channel");
+                                    sender.send(WsMessage::Text(s)).expect("Can't send to channel");
                                 } else {
                                     debug!("Dropping message - no receivers");
                                 }
@@ -407,7 +408,6 @@ pub fn is_subscription_confirmed_message_solanarpc_mango(s: &str) -> anyhow::Res
         warn!("Unexpected subscription response message: {:?}", s);
         bail!("Unexpected subscription response message: {:?}", s);
     }
-
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -431,12 +431,13 @@ fn map_error(e: Error) -> WebsocketHighLevelError {
         Error::Tls(_) => FatalWsError(e),
         Error::Capacity(_) => RecoverableWsError(e),
         Error::Protocol(_) => RecoverableWsError(e),
-        Error::SendQueueFull(_) => FatalWsError(e),
         Error::Utf8 => FatalWsError(e),
         Error::Url(UnableToConnect(_)) => RecoverableWsError(e),
         Error::Url(_) => FatalWsError(e),
         // e.g. Recoverable error - retry: Http(Response { status: 401, version: HTTP/1.1, ...)
         Error::Http(_) => RecoverableWsError(e),
         Error::HttpFormat(_) => RecoverableWsError(e),
+        Error::WriteBufferFull(_) => RecoverableWsError(e),
+        Error::AttackAttempt => FatalWsError(e),
     }
 }
